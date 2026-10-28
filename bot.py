@@ -805,18 +805,7 @@ async def run_check(app=None, notify_users=True) -> list:
                     logger.error(f"Ошибка отправки {chat_id}: {e}")
                 except Exception as e:
                     logger.error(f"Ошибка отправки {chat_id}: {e}")
-            else:
-                try:
-                    await app.bot.send_message(
-                        chat_id,
-                        f"✅ Новых туров: {pending}"
-                        + (f" (показаны {len(new_tours)} самых дешёвых, остальные пришлю в следующий раз)"
-                           if pending > len(new_tours) else "")
-                        + ".\n"
-                        f"⏱ Следующая проверка через {interval_str}"
-                    )
-                except Exception:
-                    pass
+            logger.info(f"Юзер {chat_id}: отправлено {len(new_tours)} из {pending} новых туров")
 
     return all_tours
 
