@@ -889,8 +889,11 @@ def main():
     scheduler = AsyncIOScheduler()
 
     # ✅ ИСПРАВЛЕНО: используем async def вместо lambda с ensure_future
+    check_lock = asyncio.Lock()   # две проверки одновременно не запускаем
+
     async def scheduled_check():
-        await run_check(app=app, notify_users=True)
+        async with check_lock:
+            await run_check(app=app, notify_users=True)
 
     scheduler.add_job(
         scheduled_check,
@@ -898,6 +901,17 @@ def main():
         minutes=config.CHECK_INTERVAL_MINUTES,
         id="check",
         max_instances=1,
+    )
+    # ежедневная рассылка ровно в DAILY_SEND_HOUR:00 по Таллину (не зависит от перезапусков бота)
+    scheduler.add_job(
+        scheduled_check,
+        trigger="cron",
+        hour=config.DAILY_SEND_HOUR,
+        minute=0,
+        timezone=TALLINN,
+        id="daily",
+        max_instances=1,
+        misfire_grace_time=1800,
     )
 
     for uid in config.ALLOWED_USERS:
