@@ -8,7 +8,8 @@ from logging.handlers import RotatingFileHandler
 import asyncio
 import time
 import os
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 os.chdir(BASE_DIR)
@@ -724,6 +725,21 @@ async def fetch_all_tours() -> list:
     return all_tours
 
 
+TALLINN = ZoneInfo("Europe/Tallinn")
+
+
+def _daily_due(last, now) -> bool:
+    """Пора ли слать ежедневную рассылку: после DAILY_SEND_HOUR по Таллину и ещё не слали в этом окне.
+    last/now — наивное время сервера (UTC)."""
+    now_l = now.replace(tzinfo=timezone.utc).astimezone(TALLINN)
+    slot = now_l.replace(hour=config.DAILY_SEND_HOUR, minute=0, second=0, microsecond=0)
+    if now_l < slot:
+        return False
+    if last is None:
+        return True
+    return last.replace(tzinfo=timezone.utc).astimezone(TALLINN) < slot
+
+
 async def run_check(app=None, notify_users=True) -> list:
     global last_check_time, total_sent
     last_check_time = datetime.now().strftime("%d.%m.%Y %H:%M")
@@ -754,7 +770,11 @@ async def run_check(app=None, notify_users=True) -> list:
 
             # интервал для пользователя хранится в БД — переживает перезапуск бота
             last = get_last_notified(chat_id)
-            if last is not None:
+            if interval >= 1440:
+                # раз в сутки — в фиксированное время (DAILY_SEND_HOUR по Таллину)
+                if not _daily_due(last, now):
+                    continue
+            elif last is not None:
                 elapsed_min = (now - last).total_seconds() / 60
                 if elapsed_min < interval:
                     logger.info(f"Юзер {chat_id} — пропускаем, прошло {elapsed_min:.0f}/{interval} мин")
