@@ -17,7 +17,7 @@ os.chdir(BASE_DIR)
 os.makedirs(os.path.join(BASE_DIR, "data"), exist_ok=True)
 os.makedirs(os.path.join(BASE_DIR, "logs"), exist_ok=True)
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram import InputMediaPhoto, Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, MessageHandler, TypeHandler,
     ApplicationHandlerStop, filters, ContextTypes,
@@ -33,6 +33,7 @@ from database import (
     mark_sent, is_sent_to, mark_sent_to, cleanup_user_sent,
     get_last_notified, set_last_notified,
     tour_tid, log_prices, get_price_series, search_hotels, hotel_tours, hotel_hash,
+    overall_daily, old_daily,
 )
 from filters import passes_filters
 from formatter import format_tour, fmt_start, fmt_status, fmt_settings, price_label
@@ -402,6 +403,38 @@ async def cmd_myid(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 #  ТЕКСТОВЫЕ КНОПКИ
 # ══════════════════════════════════════════════════════════════
 
+def kb_overall(mode: str) -> InlineKeyboardMarkup:
+    def b(label, m):
+        return InlineKeyboardButton(("✅ " if m == mode else "") + label, callback_data=f"ov_{m}")
+    return InlineKeyboardMarkup([
+        [b("По дням", "day"), b("По неделям", "week"), b("По месяцам", "month")],
+        [InlineKeyboardButton("🔎 График по отелю", callback_data="ov_hotel")],
+    ])
+
+
+async def _overall_chart(bot, chat_id: int, mode: str = "day", message=None):
+    """Общий график цен по рынку; message — сообщение, которое нужно заменить (при переключении режима)."""
+    from charts import make_overall_chart, overall_caption
+    daily = await asyncio.to_thread(overall_daily)
+    old = []   # старые данные (до 12.11) неполные и искажают картину, не показываем
+    if not daily and not old:
+        await bot.send_message(chat_id, "Данных по ценам пока нет, они появятся после ближайшей проверки.")
+        return
+    png = await asyncio.to_thread(make_overall_chart, daily, old, mode)
+    caption = overall_caption(daily, old, mode)
+    markup = kb_overall(mode)
+    if message is not None:
+        try:
+            await message.edit_media(InputMediaPhoto(png, caption=caption, parse_mode="HTML"), reply_markup=markup)
+            return
+        except BadRequest as e:
+            if "not modified" in str(e).lower():
+                return
+        except Exception:
+            pass
+    await bot.send_photo(chat_id=chat_id, photo=png, caption=caption, parse_mode="HTML", reply_markup=markup)
+
+
 def _fmt_tour_line(t: dict) -> str:
     dep = t["dep"][8:10] + "." + t["dep"][5:7]
     meal = (t.get("meal") or "").replace("Ultra All Inclusive", "UAI").replace("All Inclusive", "AI")
@@ -446,12 +479,7 @@ async def on_text_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return
 
     if text in ("📈 История цены", "История цены"):
-        WAITING_HOTEL[chat_id] = True
-        await update.message.reply_text(
-            "📈 <b>История цены</b>\nНапиши название отеля или его часть (латиницей), например: "
-            "<code>Jaz</code>, <code>Rixos</code>, <code>Coral</code>.",
-            parse_mode="HTML",
-        )
+        await _overall_chart(ctx.bot, chat_id, "day")
         return
 
     if WAITING_PRICE.get(chat_id):
@@ -510,6 +538,18 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.data and query.data.startswith("ph_"):
         await _price_history(query, ctx)
+        return
+    if query.data and query.data.startswith("ov_"):
+        mode = query.data[3:]
+        await query.answer()
+        if mode == "hotel":
+            WAITING_HOTEL[query.message.chat_id] = True
+            await ctx.bot.send_message(
+                query.message.chat_id,
+                "Напиши название отеля или его часть латиницей, например: Jaz, Rixos, Coral.",
+            )
+        elif mode in ("day", "week", "month"):
+            await _overall_chart(ctx.bot, query.message.chat_id, mode, message=query.message)
         return
     if query.data and query.data.startswith("hs_"):
         await query.answer()

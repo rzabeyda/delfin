@@ -190,6 +190,39 @@ def log_prices(tours: list) -> int:
     return len(rows)
 
 
+def _pct(sorted_list: list, q: float) -> float:
+    return sorted_list[int(round((len(sorted_list) - 1) * q))]
+
+
+def overall_daily() -> list:
+    """Цены всех туров по дням: [{day, n, min, p10, med, p90}, ...] (из price_log)."""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT day, price FROM price_log WHERE price > 0 ORDER BY day").fetchall()
+    by_day = {}
+    for r in rows:
+        by_day.setdefault(r["day"], []).append(r["price"])
+    out = []
+    for day, prices in sorted(by_day.items()):
+        p = sorted(prices)
+        out.append({"day": day, "n": len(p), "min": p[0], "p10": _pct(p, 0.10),
+                    "med": _pct(p, 0.50), "p90": _pct(p, 0.90)})
+    return out
+
+
+def old_daily(before_day: str = "9999-12-31") -> list:
+    """Старая история (price_history): медиана по дням, только дни с 5+ записями. Данные неполные."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT recorded_at AS day, price FROM price_history WHERE price > 0 AND recorded_at < ?",
+            (before_day,),
+        ).fetchall()
+    by_day = {}
+    for r in rows:
+        by_day.setdefault(r["day"], []).append(r["price"])
+    return [{"day": day, "n": len(v), "med": _pct(sorted(v), 0.5)}
+            for day, v in sorted(by_day.items()) if len(v) >= 5]
+
+
 def hotel_hash(hotel: str) -> str:
     return hashlib.md5(hotel.encode()).hexdigest()[:8]
 
