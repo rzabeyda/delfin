@@ -32,7 +32,7 @@ from database import (
     get_settings, set_setting, reset_settings,
     mark_sent, is_sent_to, mark_sent_to, cleanup_user_sent,
     get_last_notified, set_last_notified,
-    tour_tid, log_prices, get_price_series,
+    tour_tid, log_prices, get_price_series, search_hotels, hotel_tours, hotel_hash,
 )
 from filters import passes_filters
 from formatter import format_tour, fmt_start, fmt_status, fmt_settings, price_label
@@ -55,6 +55,9 @@ logger = logging.getLogger(__name__)
 last_check_time = "ещё не проверял"
 total_sent = 0
 WAITING_PRICE = {}  # chat_id: True — ждём ввода цены
+WAITING_HOTEL = {}  # chat_id: True — ждём названия отеля для истории цены
+BOTTOM_BUTTONS = {"Искать", "Фильтры", "ВКЛ", "ВЫКЛ", "📈 История цены",
+                  "🔍 Искать", "⚙️ Фильтры", "🔔 Включить", "🔕 Выключить", "Включить", "Выключить"}
 
 # Глобальная ссылка на app для планировщика
 _app = None
@@ -68,11 +71,14 @@ def main_keyboard(chat_id: int) -> ReplyKeyboardMarkup:
     active = chat_id in get_active_users()
     toggle_label = "ВЫКЛ" if active else "ВКЛ"
     return ReplyKeyboardMarkup(
-        [[
-            KeyboardButton("Искать"),
-            KeyboardButton("Фильтры"),
-            KeyboardButton(toggle_label),
-        ]],
+        [
+            [
+                KeyboardButton("Искать"),
+                KeyboardButton("Фильтры"),
+                KeyboardButton(toggle_label),
+            ],
+            [KeyboardButton("📈 История цены")],
+        ],
         resize_keyboard=True,
         is_persistent=True,
     )
@@ -357,6 +363,10 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     _spawn(_do_search(ctx.bot, chat_id))
 
 
+async def cmd_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Меню обновлено 👇", reply_markup=main_keyboard(update.effective_chat.id))
+
+
 async def cmd_stop(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     remove_user(update.effective_chat.id)
     await update.message.reply_text(
@@ -392,9 +402,57 @@ async def cmd_myid(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 #  ТЕКСТОВЫЕ КНОПКИ
 # ══════════════════════════════════════════════════════════════
 
+def _fmt_tour_line(t: dict) -> str:
+    dep = t["dep"][8:10] + "." + t["dep"][5:7]
+    meal = (t.get("meal") or "").replace("Ultra All Inclusive", "UAI").replace("All Inclusive", "AI")
+    mark = "📈" if t["days"] >= 2 else "·"
+    return f"{mark} {dep} · {t['nights']} н. · {meal} · {t['price']:.0f} €"
+
+
+async def _show_hotel_tours(send, h8: str):
+    """send(text, markup) — выводит список туров отеля с кнопками графиков."""
+    name, tours = hotel_tours(h8)
+    if not name:
+        await send("Не нашла этот отель в истории. Попробуй ещё раз: «📈 История цены».", None)
+        return
+    rows = [[InlineKeyboardButton(_fmt_tour_line(t), callback_data=f"ph_{t['tid']}")] for t in tours]
+    await send(
+        f"📈 <b>{name.split('(')[0].strip()}</b>\nВыбери тур, чтобы увидеть график цены:",
+        InlineKeyboardMarkup(rows),
+    )
+
+
 async def on_text_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     text = update.message.text
+
+    if WAITING_HOTEL.get(chat_id):
+        WAITING_HOTEL.pop(chat_id, None)
+        if text not in BOTTOM_BUTTONS:            # нажали другую кнопку — отменяем поиск
+            found = search_hotels(text)
+            if not found:
+                WAITING_HOTEL[chat_id] = True
+                await update.message.reply_text(
+                    "Не нашла такой отель. Напиши часть названия латиницей, например: Jaz, Rixos, Coral.")
+                return
+            if len(found) == 1:
+                async def _send(t, m):
+                    await update.message.reply_text(t, parse_mode="HTML", reply_markup=m)
+                await _show_hotel_tours(_send, hotel_hash(found[0]))
+                return
+            rows = [[InlineKeyboardButton(h.split("(")[0].strip()[:60], callback_data=f"hs_{hotel_hash(h)}")]
+                    for h in found]
+            await update.message.reply_text("Какой отель?", reply_markup=InlineKeyboardMarkup(rows))
+            return
+
+    if text in ("📈 История цены", "История цены"):
+        WAITING_HOTEL[chat_id] = True
+        await update.message.reply_text(
+            "📈 <b>История цены</b>\nНапиши название отеля или его часть (латиницей), например: "
+            "<code>Jaz</code>, <code>Rixos</code>, <code>Coral</code>.",
+            parse_mode="HTML",
+        )
+        return
 
     if WAITING_PRICE.get(chat_id):
         WAITING_PRICE.pop(chat_id, None)
@@ -452,6 +510,13 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.data and query.data.startswith("ph_"):
         await _price_history(query, ctx)
+        return
+    if query.data and query.data.startswith("hs_"):
+        await query.answer()
+
+        async def _send(t, m):
+            await ctx.bot.send_message(query.message.chat_id, t, parse_mode="HTML", reply_markup=m)
+        await _show_hotel_tours(_send, query.data[3:])
         return
     await query.answer()
     chat_id = query.message.chat_id
@@ -908,6 +973,7 @@ def main():
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("last",   cmd_last))
     app.add_handler(CommandHandler("myid",   cmd_myid))
+    app.add_handler(CommandHandler("menu",   cmd_menu))
     app.add_handler(CallbackQueryHandler(on_button))
     async def on_error(update, context):
         err = context.error
@@ -958,6 +1024,7 @@ def main():
                 BotCommand("start",  "Запуск и поиск туров"),
                 BotCommand("last",   "Последние найденные туры"),
                 BotCommand("status", "Статус бота"),
+                BotCommand("menu",   "Обновить кнопки внизу"),
                 BotCommand("stop",   "Выключить рассылку"),
             ])
         except Exception as e:

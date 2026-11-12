@@ -190,6 +190,38 @@ def log_prices(tours: list) -> int:
     return len(rows)
 
 
+def hotel_hash(hotel: str) -> str:
+    return hashlib.md5(hotel.encode()).hexdigest()[:8]
+
+
+def search_hotels(query: str, limit: int = 8) -> list:
+    """Отели из истории цен (по последнему дню), в названии которых есть query."""
+    q = query.strip().lower()
+    if not q:
+        return []
+    with get_conn() as conn:
+        day = conn.execute("SELECT MAX(day) FROM price_log").fetchone()[0]
+        rows = conn.execute("SELECT DISTINCT hotel FROM price_log WHERE day=?", (day,)).fetchall()
+    return sorted(r["hotel"] for r in rows if q in r["hotel"].lower())[:limit]
+
+
+def hotel_tours(h8: str, limit: int = 12):
+    """(название отеля, туры отеля за последний день: tid, дата вылета, ночи, питание, цена, дней истории)."""
+    with get_conn() as conn:
+        day = conn.execute("SELECT MAX(day) FROM price_log").fetchone()[0]
+        hotels = [r["hotel"] for r in conn.execute("SELECT DISTINCT hotel FROM price_log WHERE day=?", (day,))]
+        name = next((h for h in hotels if hotel_hash(h) == h8), None)
+        if not name:
+            return None, []
+        rows = conn.execute("""
+            SELECT p.tid, p.dep, p.nights, p.meal, p.price,
+                   (SELECT COUNT(*) FROM price_log x WHERE x.tid = p.tid) AS days
+            FROM price_log p WHERE p.day=? AND p.hotel=?
+            ORDER BY p.dep, p.nights LIMIT ?
+        """, (day, name, limit)).fetchall()
+    return name, [dict(r) for r in rows]
+
+
 def get_price_series(tid: str):
     """(описание тура, [(день, цена), ...]) по id тура."""
     with get_conn() as conn:
