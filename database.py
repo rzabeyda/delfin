@@ -79,6 +79,19 @@ def init_db():
                 last_at TEXT
             )
         """)
+        # история цен: минимальная цена каждого тура за каждый день
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS price_log (
+                tid    TEXT,
+                day    TEXT,
+                hotel  TEXT,
+                dep    TEXT,
+                nights INTEGER,
+                meal   TEXT,
+                price  REAL,
+                PRIMARY KEY (tid, day)
+            )
+        """)
         # первый запуск после обновления: не засыпать текущих подписчиков заново
         if conn.execute("SELECT COUNT(*) FROM notify_state").fetchone()[0] == 0:
             conn.execute("""
@@ -144,6 +157,50 @@ def mark_sent(tour: dict):
             tour.get("url",""), tour.get("image",""),
         ))
         conn.commit()
+
+
+# ── История цен ──────────────────────────────────────────────
+
+def tour_tid(tour: dict) -> str:
+    """Короткий id тура (отель + дата вылета + ночи + питание) для кнопки «История цены»."""
+    key = "|".join(str(tour.get(k, "")) for k in ("hotel", "departure_date", "nights", "meal_plan"))
+    return hashlib.md5(key.encode()).hexdigest()[:10]
+
+
+def log_prices(tours: list) -> int:
+    """Записывает цены туров за сегодня (за день хранится минимум). Возвращает число строк."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    day = datetime.now(ZoneInfo("Europe/Tallinn")).strftime("%Y-%m-%d")
+    rows = []
+    for t in tours:
+        price = t.get("price") or 0
+        if price <= 0 or not t.get("departure_date"):
+            continue
+        rows.append((tour_tid(t), day, t.get("hotel", ""), t.get("departure_date", ""),
+                     int(t.get("nights") or 0), str(t.get("meal_plan") or ""), float(price)))
+    with get_conn() as conn:
+        conn.executemany("""
+            INSERT INTO price_log (tid, day, hotel, dep, nights, meal, price)
+            VALUES (?,?,?,?,?,?,?)
+            ON CONFLICT(tid, day) DO UPDATE SET price = MIN(price, excluded.price)
+        """, rows)
+        conn.execute("DELETE FROM price_log WHERE day < date('now', '-400 days')")
+        conn.commit()
+    return len(rows)
+
+
+def get_price_series(tid: str):
+    """(описание тура, [(день, цена), ...]) по id тура."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT day, price, hotel, dep, nights, meal FROM price_log WHERE tid=? ORDER BY day", (tid,)
+        ).fetchall()
+    if not rows:
+        return None, []
+    r0 = rows[-1]
+    info = {"hotel": r0["hotel"], "dep": r0["dep"], "nights": r0["nights"], "meal": r0["meal"]}
+    return info, [(r["day"], r["price"]) for r in rows]
 
 
 def is_sent_to(chat_id: int, tour: dict) -> bool:

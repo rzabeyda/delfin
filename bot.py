@@ -32,6 +32,7 @@ from database import (
     get_settings, set_setting, reset_settings,
     mark_sent, is_sent_to, mark_sent_to, cleanup_user_sent,
     get_last_notified, set_last_notified,
+    tour_tid, log_prices, get_price_series,
 )
 from filters import passes_filters
 from formatter import format_tour, fmt_start, fmt_status, fmt_settings, price_label
@@ -449,6 +450,9 @@ async def on_text_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if query.data and query.data.startswith("ph_"):
+        await _price_history(query, ctx)
+        return
     await query.answer()
     chat_id = query.message.chat_id
     data = query.data
@@ -674,18 +678,42 @@ async def _back_settings(query, chat_id: int, notice: str):
 
 async def _send_tour(bot, chat_id: int, tour: dict):
     text, image = format_tour(tour)
+    markup = None
+    if tour.get("departure_date") and tour.get("nights"):
+        markup = InlineKeyboardMarkup([[
+            InlineKeyboardButton("📈 История цены", callback_data=f"ph_{tour_tid(tour)}")
+        ]])
     try:
         if image and image.startswith("http"):
-            await bot.send_photo(chat_id=chat_id, photo=image, caption=text, parse_mode="HTML")
+            await bot.send_photo(chat_id=chat_id, photo=image, caption=text, parse_mode="HTML", reply_markup=markup)
         elif image and os.path.isfile(image):
             with open(image, "rb") as f:
-                await bot.send_photo(chat_id=chat_id, photo=f, caption=text, parse_mode="HTML")
+                await bot.send_photo(chat_id=chat_id, photo=f, caption=text, parse_mode="HTML", reply_markup=markup)
         else:
             raise ValueError("no image")
     except Exception:
         await bot.send_message(
-            chat_id=chat_id, text=text, parse_mode="HTML", disable_web_page_preview=True
+            chat_id=chat_id, text=text, parse_mode="HTML", disable_web_page_preview=True,
+            reply_markup=markup,
         )
+
+
+async def _price_history(query, ctx):
+    """Кнопка «История цены»: присылает график цены этого тура по дням."""
+    tid = query.data[3:]
+    info, series = get_price_series(tid)
+    if len(series) < 2:
+        await query.answer(
+            "История цены только начала копиться: пока есть цена за 1 день. График появится завтра.",
+            show_alert=True,
+        )
+        return
+    await query.answer()
+    from charts import make_price_chart, price_caption
+    png = await asyncio.to_thread(make_price_chart, series, info)
+    await ctx.bot.send_photo(
+        chat_id=query.message.chat_id, photo=png, caption=price_caption(series, info), parse_mode="HTML",
+    )
 
 
 def _dedup_tours(tours: list) -> list:
@@ -760,6 +788,10 @@ async def run_check(app=None, notify_users=True) -> list:
             all_tours.extend(result)
 
     logger.info(f"Итого до фильтра: {len(all_tours)}")
+    try:
+        log_prices(all_tours)
+    except Exception as e:
+        logger.error(f"История цен не записана: {e}")
 
     if notify_users and app:
         now = datetime.now()
