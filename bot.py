@@ -72,14 +72,11 @@ def main_keyboard(chat_id: int) -> ReplyKeyboardMarkup:
     active = chat_id in get_active_users()
     toggle_label = "ВЫКЛ" if active else "ВКЛ"
     return ReplyKeyboardMarkup(
-        [
-            [
-                KeyboardButton("Искать"),
-                KeyboardButton("Фильтры"),
-                KeyboardButton(toggle_label),
-            ],
-            [KeyboardButton("Топ отелей")],
-        ],
+        [[
+            KeyboardButton("Искать"),
+            KeyboardButton("Фильтры"),
+            KeyboardButton(toggle_label),
+        ]],
         resize_keyboard=True,
         is_persistent=True,
     )
