@@ -337,8 +337,6 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         fmt_settings(s),
         parse_mode="HTML", reply_markup=main_keyboard(chat_id)
     )
-    await update.message.reply_text("Ищу предложения, ожидайте!")
-    _spawn(_do_search(ctx.bot, chat_id))
 
 
 async def cmd_prices(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
