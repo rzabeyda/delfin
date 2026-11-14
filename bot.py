@@ -212,7 +212,7 @@ def kb_chains(current: str = "any") -> InlineKeyboardMarkup:
     if row:
         rows.append(row)
     any_tick = "✅ " if not selected else ""
-    rows.append([InlineKeyboardButton(f"{any_tick}Любая сеть", callback_data="chain_any")])
+    rows.append([InlineKeyboardButton(f"{any_tick}Любые отели", callback_data="chain_any")])
     rows.append([InlineKeyboardButton("🏆 Топ отелей", callback_data="top_menu")])
     rows.append([InlineKeyboardButton("◀️ Назад", callback_data="settings")])
     return InlineKeyboardMarkup(rows)
@@ -697,7 +697,7 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             selected.add(key)
         new_val = ",".join(sorted(selected)) if selected else "any"
         set_setting(chat_id, "chains_filter", new_val)
-        label = "любая сеть" if new_val == "any" else new_val.replace(",", ", ")
+        label = "любые отели" if new_val == "any" else new_val.replace(",", ", ")
         await query.message.edit_text(
             f"✅ Сети: {label}\n\nВыбери одну или несколько сетей:",
             parse_mode="HTML", reply_markup=kb_chains(new_val)
@@ -723,7 +723,7 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if data == "chain_any":
         set_setting(chat_id, "chains_filter", "any")
-        await _back_settings(query, chat_id, "✅ Сети: любая")
+        await _back_settings(query, chat_id, "✅ Отели: любые")
         return
 
     if data.startswith("meal_"):

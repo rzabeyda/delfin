@@ -245,7 +245,7 @@ def fmt_settings(s: dict) -> str:
 
     chains_val = s.get("chains_filter", "any")
     if chains_val == "any":
-        chains_str = "🏨 Любая сеть"
+        chains_str = "🏨 Любые отели"
     else:
         chain_names = {"sunnydays": "Sunny Days", "fourseasons": "Four Seasons", "barcelo": "Barceló", "pickalbatros": "Pickalbatros"}
         chains_list = ", ".join(chain_names.get(c.strip(), c.strip().capitalize()) for c in chains_val.split(","))
