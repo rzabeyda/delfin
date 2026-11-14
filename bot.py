@@ -4,6 +4,7 @@ Delfin Tour Bot
 """
 
 import logging
+import re
 from logging.handlers import RotatingFileHandler
 import asyncio
 import time
@@ -754,22 +755,50 @@ async def _back_settings(query, chat_id: int, notice: str):
 #  ОТПРАВКА ТУРА
 # ══════════════════════════════════════════════════════════════
 
+def _reviews_url(tour: dict) -> str:
+    """Ссылка на отзывы отеля: поиск этого отеля на Booking.com."""
+    import urllib.parse
+    name = re.sub(r"\s*\(.*", "", tour.get("hotel", "")).strip()
+    place = {"hrg": "Hurghada", "ssh": "Sharm El Sheikh"}.get(tour.get("city") or "", "Egypt")
+    return "https://www.booking.com/searchresults.html?ss=" + urllib.parse.quote(f"{name} {place}")
+
+
+async def _download_image(url: str):
+    """Скачивает картинку сами (если Telegram не смог взять её по ссылке)."""
+    def get():
+        import requests
+        r = requests.get(url, timeout=12, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.delfiin.ee/"})
+        ok = r.ok and r.headers.get("content-type", "").startswith("image") and len(r.content) < 5_000_000
+        return r.content if ok else None
+    try:
+        return await asyncio.to_thread(get)
+    except Exception:
+        return None
+
+
 async def _send_tour(bot, chat_id: int, tour: dict):
     text, image = format_tour(tour)
-    markup = None
+    buttons = [InlineKeyboardButton("📝 Отзывы", url=_reviews_url(tour))]
     if tour.get("departure_date") and tour.get("nights"):
-        markup = InlineKeyboardMarkup([[
-            InlineKeyboardButton("📈 История цены", callback_data=f"ph_{tour_tid(tour)}")
-        ]])
+        buttons.append(InlineKeyboardButton("📈 История цены", callback_data=f"ph_{tour_tid(tour)}"))
+    markup = InlineKeyboardMarkup([buttons])
     try:
         if image and image.startswith("http"):
-            await bot.send_photo(chat_id=chat_id, photo=image, caption=text, parse_mode="HTML", reply_markup=markup)
+            try:
+                await bot.send_photo(chat_id=chat_id, photo=image, caption=text, parse_mode="HTML", reply_markup=markup)
+            except Exception as e:
+                logger.warning(f"Фото по ссылке не отправилось ({tour.get('hotel','')}): {e}; пробую скачать самой")
+                data = await _download_image(image)
+                if not data:
+                    raise
+                await bot.send_photo(chat_id=chat_id, photo=data, caption=text, parse_mode="HTML", reply_markup=markup)
         elif image and os.path.isfile(image):
             with open(image, "rb") as f:
                 await bot.send_photo(chat_id=chat_id, photo=f, caption=text, parse_mode="HTML", reply_markup=markup)
         else:
             raise ValueError("no image")
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Карточка без фото ({tour.get('hotel','')}): {e}")
         await bot.send_message(
             chat_id=chat_id, text=text, parse_mode="HTML", disable_web_page_preview=True,
             reply_markup=markup,
