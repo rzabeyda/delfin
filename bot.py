@@ -57,7 +57,7 @@ last_check_time = "ещё не проверял"
 total_sent = 0
 WAITING_PRICE = {}  # chat_id: True — ждём ввода цены
 WAITING_HOTEL = {}  # chat_id: True — ждём названия отеля для истории цены
-BOTTOM_BUTTONS = {"Искать", "Фильтры", "ВКЛ", "ВЫКЛ", "📈 История цены",
+BOTTOM_BUTTONS = {"Искать", "Фильтры", "ВКЛ", "ВЫКЛ", "Топ отелей", "📈 История цены",
                   "🔍 Искать", "⚙️ Фильтры", "🔔 Включить", "🔕 Выключить", "Включить", "Выключить"}
 
 # Глобальная ссылка на app для планировщика
@@ -72,11 +72,14 @@ def main_keyboard(chat_id: int) -> ReplyKeyboardMarkup:
     active = chat_id in get_active_users()
     toggle_label = "ВЫКЛ" if active else "ВКЛ"
     return ReplyKeyboardMarkup(
-        [[
-            KeyboardButton("Искать"),
-            KeyboardButton("Фильтры"),
-            KeyboardButton(toggle_label),
-        ]],
+        [
+            [
+                KeyboardButton("Искать"),
+                KeyboardButton("Фильтры"),
+                KeyboardButton(toggle_label),
+            ],
+            [KeyboardButton("Топ отелей")],
+        ],
         resize_keyboard=True,
         is_persistent=True,
     )
@@ -456,6 +459,12 @@ async def on_text_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     for h in found]
             await update.message.reply_text("Какой отель?", reply_markup=InlineKeyboardMarkup(rows))
             return
+
+    if text == "Топ отелей":
+        await update.message.reply_text(
+            "🏆 <b>Топ отелей</b>\n\nВыбери город:", parse_mode="HTML", reply_markup=kb_top_menu(),
+        )
+        return
 
     if text in ("📈 История цены", "История цены"):
         await _overall_chart(ctx.bot, chat_id, "day")
