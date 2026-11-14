@@ -130,7 +130,7 @@ def kb_days(current: int = 0) -> InlineKeyboardMarkup:
         tick = "✅ " if current == days else ""
         return InlineKeyboardButton(f"{tick}{label}", callback_data=f"days_{days}")
     return InlineKeyboardMarkup([
-        [b("7 дней", 7), b("14 дней", 14)],
+        [b("7 дней", 7), b("14 дней", 14), b("30 дней", 30)],
         [InlineKeyboardButton("◀️ Назад", callback_data="settings")],
     ])
 
@@ -145,38 +145,17 @@ def kb_stars(mn: int = 0, mx: int = 0) -> InlineKeyboardMarkup:
     ])
 
 
-PRICE_KEYS = ("0-499", "500-999", "1000-9999")
 PRICE_MENU_TEXT = (
     "💰 <b>Цена</b>\n"
     "<i>при условии, что в номере проживают 2 человека</i>\n\n"
-    "Можно выбрать несколько вариантов"
+    "Напиши цену <b>от</b> и <b>до</b> одним сообщением, например: <code>300 700</code>\n"
+    "Одно число — это «до»: <code>500</code> значит от 0 до 500."
 )
 
 
-def _price_set(current: str) -> set:
-    """Выбранные диапазоны цены как множество ключей (старые значения приводим к новым)."""
-    if not current or current == "any":
-        return set()
-    out = set()
-    for k in current.split(","):
-        k = k.strip()
-        if k == "500-9999":            # старое «500+ €» = два нынешних диапазона
-            out.update({"500-999", "1000-9999"})
-        elif k in PRICE_KEYS:
-            out.add(k)
-    return out
-
-
 def kb_price(current: str = "any", price_max: int = 9999) -> InlineKeyboardMarkup:
-    selected = _price_set(current)
-    any_on = (not current or current == "any") and price_max >= 9999
-
-    def b(label, key):
-        tick = "✅ " if key in selected else ""
-        return InlineKeyboardButton(f"{tick}{label}", callback_data=f"price_toggle_{key}")
     return InlineKeyboardMarkup([
-        [b("0 – 500 €", "0-499"), b("500 – 1000 €", "500-999"), b("1000+ €", "1000-9999")],
-        [InlineKeyboardButton(("✅ " if any_on else "") + "Любая цена", callback_data="price_toggle_any")],
+        [InlineKeyboardButton("Любая цена", callback_data="price_toggle_any")],
         [InlineKeyboardButton("◀️ Назад", callback_data="settings")],
     ])
 
@@ -483,28 +462,30 @@ async def on_text_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     if WAITING_PRICE.get(chat_id):
-        WAITING_PRICE.pop(chat_id, None)
-        import re as _re
-        nums = _re.findall(r'\d+', text)
-        if len(nums) >= 2:
-            pmin, pmax = int(nums[0]), int(nums[1])
-        elif len(nums) == 1:
-            pmin, pmax = 0, int(nums[0])
+        if text in BOTTOM_BUTTONS:                # нажали кнопку внизу — отменяем ввод цены
+            WAITING_PRICE.pop(chat_id, None)
         else:
-            await update.message.reply_text("❌ Не понял. Введи например: 300 700")
+            import re as _re
+            nums = _re.findall(r'\d+', text)
+            if not nums:
+                await update.message.reply_text("❌ Не понял. Напиши два числа, например: 300 700")
+                return
+            WAITING_PRICE.pop(chat_id, None)
+            if len(nums) >= 2:
+                pmin, pmax = sorted((int(nums[0]), int(nums[1])))
+            else:
+                pmin, pmax = 0, int(nums[0])
+            set_setting(chat_id, "price_min", pmin)
+            set_setting(chat_id, "price_max", pmax)
+            set_setting(chat_id, "price_ranges", f"{pmin}-{pmax}")
+            s = get_settings(chat_id)
+            s["chat_id"] = chat_id
+            await update.message.reply_text(
+                f"✅ Цена: {price_label(f'{pmin}-{pmax}')}\n\n" + fmt_settings(s),
+                parse_mode="HTML",
+                reply_markup=kb_settings(chat_id)
+            )
             return
-        set_setting(chat_id, "price_min", pmin)
-        set_setting(chat_id, "price_max", pmax)
-        set_setting(chat_id, "price_ranges", f"{pmin}-{pmax}")
-        s = get_settings(chat_id)
-        s["chat_id"] = chat_id
-        label = f"{pmin}–{pmax}€" if pmin > 0 else f"до {pmax}€"
-        await update.message.reply_text(
-            f"✅ Цена: {label}\n\n" + fmt_settings(s),
-            parse_mode="HTML",
-            reply_markup=kb_settings(chat_id)
-        )
-        return
 
     if text in ("Фильтры", "⚙️ Фильтры"):
         s = get_settings(chat_id)
@@ -563,6 +544,7 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     data = query.data
 
     if data == "settings":
+        WAITING_PRICE.pop(chat_id, None)
         s = get_settings(chat_id)
         s["chat_id"] = chat_id
         await query.message.edit_text(
@@ -605,6 +587,7 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if data == "menu_price":
         s = get_settings(chat_id)
         current = s.get("price_ranges", "any")
+        WAITING_PRICE[chat_id] = True
         await query.message.edit_text(
             PRICE_MENU_TEXT + f"\n\n✅ Сейчас: <b>{price_label(current, int(s.get('price_max', 9999)))}</b>",
             parse_mode="HTML",
@@ -620,25 +603,8 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if data.startswith("price_toggle_"):
-        key = data.replace("price_toggle_", "")
-        s = get_settings(chat_id)
-        if key == "any":
-            new_val = "any"
-        else:
-            selected = _price_set(s.get("price_ranges", "any")) ^ {key}
-            new_val = ",".join(sorted(selected, key=lambda k: int(k.split("-")[0]))) if selected else "any"
-        if new_val == "any":
-            set_setting(chat_id, "price_min", 0)
-            set_setting(chat_id, "price_max", 9999)
-        set_setting(chat_id, "price_ranges", new_val)
-        await query.message.edit_text(
-            PRICE_MENU_TEXT + f"\n\n✅ Сейчас: <b>{price_label(new_val)}</b>",
-            parse_mode="HTML", reply_markup=kb_price(new_val, 9999 if new_val == "any" else 0),
-        )
-        return
-
     if data == "price_toggle_any":
+        WAITING_PRICE.pop(chat_id, None)
         set_setting(chat_id, "price_ranges", "any")
         set_setting(chat_id, "price_min", 0)
         set_setting(chat_id, "price_max", 9999)
