@@ -778,7 +778,7 @@ async def _download_image(url: str):
 
 async def _send_tour(bot, chat_id: int, tour: dict):
     text, image = format_tour(tour)
-    buttons = [InlineKeyboardButton("📝 Отзывы", url=_reviews_url(tour))]
+    buttons = []
     if tour.get("departure_date") and tour.get("nights"):
         buttons.append(InlineKeyboardButton("📈 История цены", callback_data=f"ph_{tour_tid(tour)}"))
     markup = InlineKeyboardMarkup([buttons])
