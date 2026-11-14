@@ -244,7 +244,10 @@ def _parse_rows(container, dep_date, nights, destination, return_date, tours, se
             hotel_name = link.get_text(strip=True)
             # Убираем "(Ex. Старое название)" и "(ex. ...)"
             hotel_name = re.sub(r'\s*\([Ee]x\.?[^)]*\)', '', hotel_name).strip()
-            if not hotel_name:
+            # сайт стал писать «Hotel 3*» вместо «Hotel (3*)» — приводим к прежнему виду «Hotel (3*)»,
+            # иначе не находятся звёзды, рейтинги и ломается история цен
+            hotel_name = re.sub(r'\s+(\d[+\-]?[*★])\s*$', r' (\1)', hotel_name)
+            if not hotel_name or re.fullmatch(r'\d[+\-]?[*★]', hotel_name):
                 continue
             hotel_url = link["href"]
             if hotel_url.startswith("/"):

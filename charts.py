@@ -61,7 +61,7 @@ def make_price_chart(series: list, info: dict) -> bytes:
                 xytext=(8, 0), ha="left", va="center", fontsize=10, fontweight="bold")
 
     ax.set_title(_title(info), fontsize=11, loc="left")
-    ax.set_ylabel("€ за 1 человека")
+    ax.set_ylabel("€ (при двух в номере)")
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m"))
     ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=3, maxticks=8))
     ax.grid(True, alpha=0.25)
@@ -114,7 +114,7 @@ def aggregate(daily: list, mode: str, fields: tuple) -> list:
 
 
 def overall_caption(daily: list, old: list, mode: str) -> str:
-    head = "📈 <b>Цены на туры в целом</b> (за 1 человека)\n"
+    head = "📈 <b>Цены на туры в целом</b> (при двух в номере)\n"
     if not daily:
         return head + "Пока данных нет."
     now = daily[-1]
@@ -168,7 +168,7 @@ def make_overall_chart(daily: list, old: list, mode: str = "day") -> bytes:
                     xytext=(8, 0), ha="left", va="center", fontsize=8, color="#5f6368")
 
     ax.set_title(f"Цены на туры в целом, {MODES.get(mode, mode)}", fontsize=11, loc="left")
-    ax.set_ylabel("€ за 1 человека")
+    ax.set_ylabel("€ (при двух в номере)")
     fmt = "%m.%Y" if mode == "month" else "%d.%m"
     ax.xaxis.set_major_formatter(mdates.DateFormatter(fmt))
     ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=3, maxticks=8))

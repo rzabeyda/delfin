@@ -262,7 +262,7 @@ def fmt_settings(s: dict) -> str:
         f"⚙️ <b>Настройки фильтров</b>\n\n"
         f"⏱ Частота уведомлений: <b>{interval_str}</b>\n"
         f"📅 Вылет: <b>в ближайшие {days_val} дней</b>\n"
-        f"💰 Цена: <b>{price_str}</b> за 1 человека\n"
+        f"💰 Цена: <b>{price_str}</b>\n"
         f"🌟 Звёзды: <b>{s.get('stars_min', 3)}★ — {s.get('stars_max', 5)}★</b>\n"
         f"{chains_str}\n"
         f"{rating_str}"
