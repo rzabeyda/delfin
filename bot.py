@@ -265,7 +265,8 @@ def _top_text(city: str, page: int = 1) -> str:
     lines = [head, ""]
     for i, (name, stars, rating) in enumerate(hotels[start:start + TOP_PAGE_SIZE], start + 1):
         star_part = f" · {stars}★" if stars else ""
-        lines.append(f"{i}. {name}{star_part} · {rating}/10")
+        rating_part = f" · {rating}/10" if rating else ""
+        lines.append(f"{i}. {name}{star_part}{rating_part}")
     return "\n".join(lines)[:4000]
 
 

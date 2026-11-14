@@ -223,7 +223,7 @@ def overall_daily() -> list:
     for day, prices in sorted(by_day.items()):
         p = sorted(prices)
         out.append({"day": day, "n": len(p), "min": p[0], "p10": _pct(p, 0.10),
-                    "med": _pct(p, 0.50), "p90": _pct(p, 0.90)})
+                    "med": _pct(p, 0.50), "p90": _pct(p, 0.90), "avg": sum(p) / len(p)})
     return out
 
 
