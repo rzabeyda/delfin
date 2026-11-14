@@ -95,7 +95,6 @@ def kb_settings(chat_id: int) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("🌟 Звёзды",  callback_data="menu_stars"),
-            InlineKeyboardButton("🏅 Рейтинг", callback_data="menu_rating"),
             InlineKeyboardButton("🏨 Отели",   callback_data="menu_chains"),
         ],
         [

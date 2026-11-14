@@ -145,12 +145,7 @@ def passes_filters(tour: dict, settings: dict = None) -> bool:
     if not _meal_matches(tour.get("meal_plan", ""), "ai,uai"):
         return False
 
-    if rating_f > 0:
-        from ratings import get_rating
-        rating, _ = get_rating(tour.get("hotel", ""))
-        # у отеля нет рейтинга — не можем подтвердить, что он подходит
-        if not rating or rating < rating_f:
-            return False
+    # фильтра по рейтингу больше нет: рейтинги отелей неточные
 
     if not is_good_stars(tour.get("stars", 0), stars_min, stars_max):
         log.info(f"ФИЛЬТР звёзды: {tour.get('stars',0)} не в {stars_min}-{stars_max} | {tour.get('hotel','')}")

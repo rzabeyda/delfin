@@ -251,8 +251,6 @@ def fmt_settings(s: dict) -> str:
         chains_list = ", ".join(chain_names.get(c.strip(), c.strip().capitalize()) for c in chains_val.split(","))
         chains_str = f"🏨 <b>{chains_list}</b>"
 
-    rating_min = float(s.get("rating_min", 0) or 0)
-    rating_str = f"🏅 Рейтинг: <b>{rating_min:g}+</b>" if rating_min > 0 else "🏅 Рейтинг: <b>любой</b>"
 
     return (
         f"⚙️ <b>Настройки фильтров</b>\n\n"
@@ -261,6 +259,5 @@ def fmt_settings(s: dict) -> str:
         f"💰 Цена: <b>{price_str}</b>\n"
         f"🌟 Звёзды: <b>{s.get('stars_min', 3)}★ — {s.get('stars_max', 5)}★</b>\n"
         f"{chains_str}\n"
-        f"{rating_str}\n"
         f"🏙 Город: <b>{city_labels.get(s.get('city_filter', 'all'), 'Все')}</b>"
     )
