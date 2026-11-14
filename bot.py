@@ -72,14 +72,11 @@ def main_keyboard(chat_id: int) -> ReplyKeyboardMarkup:
     active = chat_id in get_active_users()
     toggle_label = "ВЫКЛ" if active else "ВКЛ"
     return ReplyKeyboardMarkup(
-        [
-            [
-                KeyboardButton("Искать"),
-                KeyboardButton("Фильтры"),
-                KeyboardButton(toggle_label),
-            ],
-            [KeyboardButton("📈 История цены")],
-        ],
+        [[
+            KeyboardButton("Искать"),
+            KeyboardButton("Фильтры"),
+            KeyboardButton(toggle_label),
+        ]],
         resize_keyboard=True,
         is_persistent=True,
     )
@@ -101,6 +98,9 @@ def kb_settings(chat_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton("🏅 Рейтинг", callback_data="menu_rating"),
             InlineKeyboardButton("🏨 Отели",   callback_data="menu_chains"),
         ],
+        [
+            InlineKeyboardButton("🏙 Город",   callback_data="menu_city"),
+        ],
     ])
 
 
@@ -114,13 +114,12 @@ def kb_interval(current: int = 0) -> InlineKeyboardMarkup:
     ])
 
 
-def kb_city() -> InlineKeyboardMarkup:
+def kb_city(current: str = "all") -> InlineKeyboardMarkup:
+    def b(label, key):
+        tick = "✅ " if current == key else ""
+        return InlineKeyboardButton(f"{tick}{label}", callback_data=f"city_{key}")
     return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🏙 Все",     callback_data="city_all"),
-            InlineKeyboardButton("🌊 Хургада", callback_data="city_hrg"),
-            InlineKeyboardButton("🏔 Шарм",    callback_data="city_ssh"),
-        ],
+        [b("Хургада", "hrg"), b("Шарм", "ssh"), b("Все", "all")],
         [InlineKeyboardButton("◀️ Назад", callback_data="settings")],
     ])
 
@@ -341,6 +340,10 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text("Ищу предложения, ожидайте!")
     _spawn(_do_search(ctx.bot, chat_id))
+
+
+async def cmd_prices(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await _overall_chart(ctx.bot, update.effective_chat.id, "day")
 
 
 async def cmd_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -573,7 +576,8 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if data == "menu_city":
         await query.message.edit_text(
-            "🏙 <b>Город</b>", parse_mode="HTML", reply_markup=kb_city()
+            "🏙 <b>Город</b>", parse_mode="HTML",
+            reply_markup=kb_city(get_settings(chat_id).get("city_filter", "all"))
         )
         return
 
@@ -655,7 +659,7 @@ async def on_button(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if data.startswith("city_"):
         val = data[5:]
         set_setting(chat_id, "city_filter", val)
-        labels = {"all": "🏙 Все города", "hrg": "🌊 Хургада", "ssh": "🏔 Шарм"}
+        labels = {"all": "Все", "hrg": "Хургада", "ssh": "Шарм"}
         await _back_settings(query, chat_id, f"✅ Город: {labels.get(val, val)}")
         return
 
@@ -980,6 +984,7 @@ def main():
     app.add_handler(CommandHandler("last",   cmd_last))
     app.add_handler(CommandHandler("myid",   cmd_myid))
     app.add_handler(CommandHandler("menu",   cmd_menu))
+    app.add_handler(CommandHandler("prices", cmd_prices))
     app.add_handler(CallbackQueryHandler(on_button))
     async def on_error(update, context):
         err = context.error
@@ -1030,6 +1035,7 @@ def main():
                 BotCommand("start",  "Запуск и поиск туров"),
                 BotCommand("last",   "Последние найденные туры"),
                 BotCommand("status", "Статус бота"),
+                BotCommand("prices", "График цен в целом"),
                 BotCommand("menu",   "Обновить кнопки внизу"),
                 BotCommand("stop",   "Выключить рассылку"),
             ])

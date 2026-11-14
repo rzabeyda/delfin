@@ -79,6 +79,13 @@ def init_db():
                 last_at TEXT
             )
         """)
+        # город отеля (определяется один раз по странице отеля на delfiin.ee)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hotel_city (
+                hotel TEXT PRIMARY KEY,
+                city  TEXT
+            )
+        """)
         # история цен: минимальная цена каждого тура за каждый день
         conn.execute("""
             CREATE TABLE IF NOT EXISTS price_log (
@@ -160,6 +167,17 @@ def mark_sent(tour: dict):
 
 
 # ── История цен ──────────────────────────────────────────────
+
+def load_hotel_cities() -> dict:
+    with get_conn() as conn:
+        return {r["hotel"]: r["city"] for r in conn.execute("SELECT hotel, city FROM hotel_city")}
+
+
+def save_hotel_city(hotel: str, city: str):
+    with get_conn() as conn:
+        conn.execute("INSERT OR REPLACE INTO hotel_city (hotel, city) VALUES (?, ?)", (hotel, city))
+        conn.commit()
+
 
 def tour_tid(tour: dict) -> str:
     """Короткий id тура (отель + дата вылета + ночи + питание) для кнопки «История цены»."""

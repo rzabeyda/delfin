@@ -229,11 +229,7 @@ def fmt_settings(s: dict) -> str:
         "hb":     "🥗 Half Board",
         "any":    "🍴 Любое питание",
     }
-    city_labels = {
-        "all": "Хургада, Шарм",
-        "hrg": "🌊 Хургада",
-        "ssh": "🏔 Шарм-эль-Шейх",
-    }
+    city_labels = {"all": "Все", "hrg": "Хургада", "ssh": "Шарм"}
 
     interval = s.get("interval_min", 30)
     if interval >= 10080:
@@ -265,5 +261,6 @@ def fmt_settings(s: dict) -> str:
         f"💰 Цена: <b>{price_str}</b>\n"
         f"🌟 Звёзды: <b>{s.get('stars_min', 3)}★ — {s.get('stars_max', 5)}★</b>\n"
         f"{chains_str}\n"
-        f"{rating_str}"
+        f"{rating_str}\n"
+        f"🏙 Город: <b>{city_labels.get(s.get('city_filter', 'all'), 'Все')}</b>"
     )

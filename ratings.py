@@ -213,13 +213,5 @@ def get_rating(hotel_name: str):
     top = _top_rating(hotel_name)
     if top:
         return top, None
-    name_words = set(name.split())
-    best_match = None
-    best_count = 1
-    for key, rating in HOTEL_RATINGS.items():
-        key_words = set(key.split())
-        common = len(key_words & name_words)
-        if common > best_count:
-            best_count = common
-            best_match = (rating, None)
-    return best_match if best_match else (None, None)
+    # Запасного поиска по «общим словам» нет: он выдавал чужие рейтинги (Resort, Sharm, Beach...).
+    return None, None

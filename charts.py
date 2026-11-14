@@ -90,8 +90,8 @@ def _period_key(day: str, mode: str) -> str:
     return day
 
 
-def aggregate(daily: list, mode: str, fields: tuple) -> list:
-    """Склеивает дневные значения в недели/месяцы (среднее). Для «по дням» берёт последние 30 дней."""
+def aggregate(daily: list, mode: str, fields: tuple, how: str = "mean") -> list:
+    """Склеивает дневные значения в недели/месяцы (среднее или минимум). Для «по дням» берёт последние 30 дней."""
     if not daily:
         return []
     if mode == "day":
@@ -108,75 +108,66 @@ def aggregate(daily: list, mode: str, fields: tuple) -> list:
         g = groups[key]
         row = {"day": key}
         for f in fields:
-            row[f] = sum(x[f] for x in g) / len(g)
+            vals = [x[f] for x in g]
+            row[f] = min(vals) if how == "min" else sum(vals) / len(vals)
         out.append(row)
     return out
 
 
 def overall_caption(daily: list, old: list, mode: str) -> str:
-    head = "📈 <b>Цены на туры в целом</b> (при двух в номере)\n"
+    head = "📈 <b>Минимальная цена на туры</b>\n"
     if not daily:
         return head + "Пока данных нет."
     now = daily[-1]
-    text = (head +
-            f"Сейчас ({_fmt_day(now['day'])}): дешёвые <b>{now['p10']:.0f} €</b> · "
-            f"средняя <b>{now['med']:.0f} €</b> · дорогие <b>{now['p90']:.0f} €</b>\n"
-            f"Самый дешёвый тур: {now['min']:.0f} €, всего туров: {now['n']}")
-    agg = aggregate(daily, mode, ("med",))
+    text = head + f"Самый дешёвый тур сейчас ({_fmt_day(now['day'])}): <b>{now['min']:.0f} €</b>"
+    agg = aggregate(daily, mode, ("min",), how="min")
     if len(agg) >= 2:
-        diff = agg[-1]["med"] - agg[0]["med"]
-        pct = diff / agg[0]["med"] * 100 if agg[0]["med"] else 0
+        diff = agg[-1]["min"] - agg[0]["min"]
+        pct = diff / agg[0]["min"] * 100 if agg[0]["min"] else 0
         arrow = "📉" if diff < 0 else ("📈" if diff > 0 else "➖")
-        text += f"\n{arrow} Средняя цена с {_fmt_day(agg[0]['day'])}: {diff:+.0f} € ({pct:+.0f}%)"
+        lo = min(agg, key=lambda x: x["min"])
+        hi = max(agg, key=lambda x: x["min"])
+        text += (f"\n{arrow} С {_fmt_day(agg[0]['day'])}: {diff:+.0f} € ({pct:+.0f}%)"
+                 f"\nНиже всего было {lo['min']:.0f} € ({_fmt_day(lo['day'])}), выше всего {hi['min']:.0f} € ({_fmt_day(hi['day'])})")
     else:
-        text += "\n\nПолная история копится с 12.11, график по дням появится завтра."
-    if old:
-        text += "\n\n<i>Серая линия — старые данные (до 12.11): только туры, которые бот присылал, поэтому они неполные.</i>"
+        text += "\n\nИстория копится с 12.11, линия по дням появится завтра."
     return text
 
 
 def make_overall_chart(daily: list, old: list, mode: str = "day") -> bytes:
+    """График минимальной цены (самого дешёвого тура) по дням / неделям / месяцам."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
 
-    main = aggregate(daily, mode, ("min", "p10", "med", "p90"))
-    prev = aggregate(old, mode, ("med",)) if old else []
-    if mode == "day" and prev and main:      # для старых данных по дням показываем те же 30 дней
-        first = main[0]["day"]
-        prev = [p for p in prev if p["day"] >= first] or prev[-30:]
-
-    fig, ax = plt.subplots(figsize=(8, 4.6), dpi=130)
-    if prev:
-        ax.plot([datetime.strptime(p["day"], "%Y-%m-%d") for p in prev], [p["med"] for p in prev],
-                color="#9aa0a6", linewidth=1.5, linestyle="--", marker="o", markersize=3,
-                label="старые данные (неполные)", zorder=2)
+    main = aggregate(daily, mode, ("min",), how="min")
+    fig, ax = plt.subplots(figsize=(8, 4.4), dpi=130)
     if main:
         xs = [datetime.strptime(m["day"], "%Y-%m-%d") for m in main]
-        ax.fill_between(xs, [m["p10"] for m in main], [m["p90"] for m in main],
-                        color="#1a73e8", alpha=0.12, label="от дешёвых (10%) к дорогим (90%)", zorder=1)
-        ax.plot(xs, [m["med"] for m in main], color="#1a73e8", linewidth=2.4, marker="o", markersize=5,
-                label="средняя цена", zorder=4)
-        ax.plot(xs, [m["min"] for m in main], color="#1e8e3e", linewidth=1.4, linestyle=":", marker="o",
-                markersize=3, label="самый дешёвый тур", zorder=3)
-        ax.annotate(f"{main[-1]['med']:.0f} €", (xs[-1], main[-1]["med"]), textcoords="offset points",
+        ys = [m["min"] for m in main]
+        ax.plot(xs, ys, color="#1a73e8", linewidth=2.4, marker="o", markersize=5, zorder=3)
+        ax.fill_between(xs, ys, min(ys) - (max(ys) - min(ys) or 20) * 0.35, color="#1a73e8", alpha=0.08, zorder=1)
+        lo_i, hi_i = ys.index(min(ys)), ys.index(max(ys))
+        ax.scatter([xs[lo_i]], [ys[lo_i]], color="#1e8e3e", s=60, zorder=4)
+        ax.annotate(f"мин {ys[lo_i]:.0f} €", (xs[lo_i], ys[lo_i]), textcoords="offset points",
+                    xytext=(0, -16), ha="center", color="#1e8e3e", fontsize=9)
+        if hi_i != lo_i:
+            ax.scatter([xs[hi_i]], [ys[hi_i]], color="#d93025", s=60, zorder=4)
+            ax.annotate(f"макс {ys[hi_i]:.0f} €", (xs[hi_i], ys[hi_i]), textcoords="offset points",
+                        xytext=(0, 10), ha="center", color="#d93025", fontsize=9)
+        ax.annotate(f"{ys[-1]:.0f} €", (xs[-1], ys[-1]), textcoords="offset points",
                     xytext=(8, 0), ha="left", va="center", fontsize=10, fontweight="bold")
-        ax.annotate(f"{main[-1]['p90']:.0f} €", (xs[-1], main[-1]["p90"]), textcoords="offset points",
-                    xytext=(8, 0), ha="left", va="center", fontsize=8, color="#5f6368")
-        ax.annotate(f"{main[-1]['p10']:.0f} €", (xs[-1], main[-1]["p10"]), textcoords="offset points",
-                    xytext=(8, 0), ha="left", va="center", fontsize=8, color="#5f6368")
 
-    ax.set_title(f"Цены на туры в целом, {MODES.get(mode, mode)}", fontsize=11, loc="left")
+    ax.set_title(f"Минимальная цена на туры, {MODES.get(mode, mode)}", fontsize=11, loc="left")
     ax.set_ylabel("€ (при двух в номере)")
     fmt = "%m.%Y" if mode == "month" else "%d.%m"
     ax.xaxis.set_major_formatter(mdates.DateFormatter(fmt))
     ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=3, maxticks=8))
     ax.grid(True, alpha=0.25)
-    ax.margins(x=0.08, y=0.12)
+    ax.margins(x=0.08, y=0.2)
     for side in ("top", "right"):
         ax.spines[side].set_visible(False)
-    ax.legend(loc="upper left", fontsize=8, frameon=False)
     fig.tight_layout()
     buf = io.BytesIO()
     fig.savefig(buf, format="png")

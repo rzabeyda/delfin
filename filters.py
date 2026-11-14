@@ -76,6 +76,17 @@ def is_right_city(destination: str, city_filter: str) -> bool:
     return True
 
 
+def matches_city(tour: dict, city_filter: str) -> bool:
+    """«Все» — оба направления; «Хургада»/«Шарм» — по городу отеля (со страницы отеля)."""
+    dest = tour.get("destination", "")
+    if city_filter == "all":
+        return is_right_city(dest, "all")
+    city = tour.get("city") or ""
+    if not city:                     # город отеля ещё не определён — берём страницу сайта
+        city = "hrg" if is_right_city(dest, "hrg") else ("ssh" if is_right_city(dest, "ssh") else "")
+    return city == city_filter
+
+
 def passes_filters(tour: dict, settings: dict = None) -> bool:
     from config import MAX_PRICE_EUR
     import logging
@@ -145,7 +156,7 @@ def passes_filters(tour: dict, settings: dict = None) -> bool:
         log.info(f"ФИЛЬТР звёзды: {tour.get('stars',0)} не в {stars_min}-{stars_max} | {tour.get('hotel','')}")
         return False
 
-    if not is_right_city(tour.get("destination", ""), city_f):
+    if not matches_city(tour, city_f):
         log.info(f"ФИЛЬТР город: {tour.get('destination','')} | {city_f}")
         return False
 

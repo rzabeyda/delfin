@@ -23,6 +23,61 @@ MAX_DAYS_AHEAD = 14
 MAX_PAGES    = 10  # максимум страниц рейсов открываем
 
 
+_CITY_PATTERNS = (
+    ("ssh", r"Шарм|Sharm|Nabq|Набк|Hadaba|Хадаба|Naama|Наама|Ras Um|Рас.?Умм"),
+    ("hrg", r"Хургад|Hurghada|Hurgada|Макади|Makadi|Сахл|Sahl|Сома.?Бей|Soma Bay|Сафаг|Safaga|Гуна|Gouna"),
+    ("other", r"Дахаб|Dahab|Таба|Taba|Нувейб|Nuweiba|Марса|Marsa|Аламейн|Alamein"),
+)
+MAX_CITY_LOOKUPS = 250   # новых отелей за один проход (первый раз определяем все сразу)
+
+
+def _detect_city(page_text: str) -> str:
+    """Город по тексту страницы отеля: после «Египет,» / «Egiptus,» идёт регион."""
+    m = re.search(r"(?:Египет|Egiptus|Egypt)\s*,\s*", page_text)
+    if not m:
+        return ""
+    after = page_text[m.end(): m.end() + 60]
+    for city, pat in _CITY_PATTERNS:
+        if re.search(pat, after, re.I):
+            return city
+    return ""
+
+
+def _attach_cities(session, tours: list):
+    """Добавляет tour['city'] = hrg / ssh / other (или '' если не удалось определить)."""
+    from concurrent.futures import ThreadPoolExecutor
+    from bs4 import BeautifulSoup
+    from database import load_hotel_cities, save_hotel_city
+
+    cities = load_hotel_cities()
+    todo = {}
+    for t in tours:
+        if t["hotel"] not in cities and t["hotel"] not in todo and t.get("url"):
+            todo[t["hotel"]] = t["url"]
+
+    def lookup(item):
+        hotel, url = item
+        try:
+            r = session.get(url.replace("showhotel.php", "hoteldesc.php"), timeout=10)
+            if r.status_code != 200:
+                return hotel, ""
+            text = re.sub(r"\s+", " ", BeautifulSoup(r.text, "html.parser").get_text(" "))
+            return hotel, _detect_city(text)
+        except Exception:
+            return hotel, ""
+
+    items = list(todo.items())[:MAX_CITY_LOOKUPS]
+    if items:
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            for hotel, city in pool.map(lookup, items):
+                if city:
+                    cities[hotel] = city
+                    save_hotel_city(hotel, city)
+        logger.info(f"Город определён для {len(items)} новых отелей (осталось {max(0, len(todo) - len(items))})")
+    for t in tours:
+        t["city"] = cities.get(t["hotel"], "")
+
+
 def fetch_delfiin() -> list:
     try:
         import requests
@@ -70,6 +125,12 @@ def fetch_delfiin() -> list:
             unique_tours.append(t)
 
     logger.info(f"Delfiin итого: {len(unique_tours)} туров (было {len(all_tours)} с дублями)")
+
+    # Город отеля: сайт кладёт в «Хургаду» и отели Шарма, поэтому читаем город со страницы отеля
+    try:
+        _attach_cities(session, unique_tours)
+    except Exception as e:
+        logger.warning(f"Город отелей не определён: {e}")
 
     # Картинки: загружаем весь кэш одним запросом, новые грузим максимум 5 штук
     try:
